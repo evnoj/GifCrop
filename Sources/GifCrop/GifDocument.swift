@@ -1,4 +1,5 @@
 import AppKit
+import GifCropShared
 
 @objc(GifDocument)
 final class GifDocument: NSDocument {
@@ -10,6 +11,23 @@ final class GifDocument: NSDocument {
 
     override func makeWindowControllers() {
         addWindowController(GifWindowController())
+    }
+
+    // Where the document was opened from, even after Save As, so `gifcrop` can match it on close.
+    private var openedURL: URL?
+
+    override func read(from url: URL, ofType typeName: String) throws {
+        try super.read(from: url, ofType: typeName)
+        if openedURL == nil {
+            openedURL = url
+        }
+    }
+
+    override func close() {
+        super.close()
+        if let openedURL {
+            DocumentClosedNotification.post(for: openedURL)
+        }
     }
 
     override func data(ofType typeName: String) throws -> Data {

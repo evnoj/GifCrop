@@ -1,10 +1,12 @@
 import AppKit
+import GifCropShared
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let customRatiosMenu = NSMenu(title: "Custom")
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = makeMainMenu()
+        FileHandle.standardError.write("DEBUG launching responds=\(responds(to: Selector(("application:openURLs:"))))\n".data(using: .utf8)!)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -12,20 +14,106 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // Like Preview: launching without a file shows the Open panel instead of an empty window.
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool { true }
 
-    // Quits if the panel is cancelled (or nothing could be opened), since there's no window to close.
     func applicationOpenUntitledFile(_ sender: NSApplication) -> Bool {
-        let controller = NSDocumentController.shared
-        let quitIfEmpty = { if controller.documents.isEmpty { NSApp.terminate(nil) } }
-        controller.beginOpenPanel { urls in
-            guard let urls, !urls.isEmpty else { return quitIfEmpty() }
-            for url in urls {
-                controller.openDocument(withContentsOf: url, display: true) { _, _, error in
-                    if let error { NSApp.presentError(error) }
-                    quitIfEmpty()
-                }
-            }
+        NSDocumentController.shared.beginOpenPanel { [weak self] urls in
+            self?.open(urls ?? [])
         }
         return true
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        open(urls)
+    }
+
+    // Quits if nothing ends up open (e.g. the Open panel was cancelled), since there's no window to close.
+    private func open(_ urls: [URL]) {
+        FileHandle.standardError.write("DEBUG open \(urls)\n".data(using: .utf8)!)
+        let controller = NSDocumentController.shared
+        let quitIfEmpty = { if controller.documents.isEmpty { NSApp.terminate(nil) } }
+        guard !urls.isEmpty else { return quitIfEmpty() }
+        for url in urls {
+            controller.openDocument(withContentsOf: url, display: true) { _, _, error in
+                FileHandle.standardError.write("DEBUG done \(String(describing: error))\n".data(using: .utf8)!)
+                guard let error else { return }
+                DocumentClosedNotification.post(for: url, error: error.localizedDescription)
+                NSApp.presentError(error)
+                quitIfEmpty()
+            }
+        }
+    }
+
+    // MARK: Command line tool
+
+    private static let commandLineToolLink = URL(fileURLWithPath: "/usr/local/bin/gifcrop")
+
+    @objc func installCommandLineTool(_ sender: Any?) {
+        let tool = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/gifcrop")
+        let link = Self.commandLineToolLink
+        let fm = FileManager.default
+
+        guard fm.isExecutableFile(atPath: tool.path) else {
+            return showAlert("The gifcrop tool is missing from this copy of GifCrop.", style: .critical)
+        }
+        if let existing = try? fm.destinationOfSymbolicLink(atPath: link.path), existing == tool.path {
+            return showAlert("The gifcrop command is already installed.", info: installedInfo)
+        }
+        if (try? fm.attributesOfItem(atPath: link.path)) != nil {
+            let alert = NSAlert()
+            alert.messageText = "Replace the existing \(link.path)?"
+            alert.informativeText = "Something is already installed there. It will be replaced with a link to the gifcrop tool in this copy of GifCrop."
+            alert.addButton(withTitle: "Replace")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+
+        do {
+            do {
+                try fm.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? fm.removeItem(at: link)
+                try fm.createSymbolicLink(at: link, withDestinationURL: tool)
+            } catch CocoaError.fileWriteNoPermission {
+                try Self.linkAsAdministrator(tool: tool, link: link)
+            }
+            showAlert("The gifcrop command is installed.", info: installedInfo)
+        } catch CocoaError.userCancelled {
+            return
+        } catch {
+            NSApp.presentError(error)
+        }
+    }
+
+    private var installedInfo: String {
+        "\(Self.commandLineToolLink.path) links to the gifcrop tool inside \(Bundle.main.bundleURL.path). Run “gifcrop --help” in a new terminal window to get started."
+    }
+
+    /// /usr/local/bin is owned by root on a fresh Mac, so fall back to the standard admin password prompt.
+    private static func linkAsAdministrator(tool: URL, link: URL) throws {
+        func quoted(_ s: String) -> String {
+            let escaped = s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+            return "quoted form of \"\(escaped)\""
+        }
+        let dir = link.deletingLastPathComponent().path
+        let command = "\"mkdir -p \" & \(quoted(dir)) & \" && ln -sfn \" & \(quoted(tool.path)) & \" \" & \(quoted(link.path))"
+        let source = "do shell script \(command) with prompt \"GifCrop wants to install the gifcrop command.\" with administrator privileges"
+
+        var errorInfo: NSDictionary?
+        NSAppleScript(source: source)?.executeAndReturnError(&errorInfo)
+        guard let errorInfo else { return }
+        if errorInfo[NSAppleScript.errorNumber] as? Int == -128 {
+            throw CocoaError(.userCancelled)
+        }
+        throw CocoaError(.fileWriteNoPermission, userInfo: [
+            NSLocalizedDescriptionKey: "The gifcrop command couldn’t be installed.",
+            NSLocalizedFailureReasonErrorKey: errorInfo[NSAppleScript.errorMessage] as? String ?? "",
+        ])
+    }
+
+    private func showAlert(_ message: String, info: String = "", style: NSAlert.Style = .informational) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = info
+        alert.alertStyle = style
+        alert.runModal()
     }
 
     private func makeMainMenu() -> NSMenu {
@@ -34,6 +122,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         main.addSubmenu(NSMenu(title: appName), items: [
             item("About \(appName)", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+            .separator(),
+            item("Install Command Line Tool…", #selector(installCommandLineTool(_:))),
             .separator(),
             item("Hide \(appName)", #selector(NSApplication.hide(_:)), "h"),
             item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
