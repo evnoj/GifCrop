@@ -1,11 +1,9 @@
 #!/bin/zsh
-# Builds build/GifCrop.app with gifsicle bundled inside.
+#MISE description="Build build/GifCrop.app with gifsicle and the gifcrop CLI bundled inside"
+#MISE depends=["gifsicle"]
 set -euo pipefail
 
-ROOT=${0:A:h:h}
-cd "$ROOT"
-
-./scripts/build-gifsicle.sh
+cd "$MISE_PROJECT_ROOT"
 
 SWIFT_FLAGS=(-c release --arch arm64 --arch x86_64)
 swift build "${SWIFT_FLAGS[@]}"
@@ -31,4 +29,4 @@ codesign --force --sign - "$APP/Contents/MacOS/gifsicle"
 codesign --force --sign - "$APP/Contents/Helpers/gifcrop"
 codesign --force --sign - "$APP"
 
-echo "$ROOT/$APP"
+echo "$MISE_PROJECT_ROOT/$APP"

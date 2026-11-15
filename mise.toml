@@ -1,0 +1,4 @@
+# Xcode (or the Command Line Tools with a macOS SDK) is also required; it isn't managed here
+# because the universal build relies on Xcode's build system.
+[tools]
+gh = "2.104.0"

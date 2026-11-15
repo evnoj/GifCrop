@@ -30,30 +30,34 @@ To use GifCrop from the terminal, choose GifCrop → Install Command Line Tool�
 
 ## Building
 
-Requires Xcode (or the Command Line Tools with a macOS SDK) and an internet connection the first time, to download the gifsicle source.
+Requires Xcode (or the Command Line Tools with a macOS SDK), [mise](https://mise.jdx.dev), and an internet connection the first time, to download the gifsicle source.
 
 ```sh
-./scripts/build-app.sh
+mise install     # tools from mise.toml (gh, used by the release task)
+mise run build
 ```
 
-This builds a universal (Apple silicon + Intel) gifsicle from source into `build/gifsicle`, builds the Swift package, and assembles an ad-hoc signed `build/GifCrop.app` with gifsicle and the icon inside it.
+This builds a universal (Apple silicon + Intel) gifsicle from source into `build/gifsicle` (skipped when it's already up to date), builds the Swift package, and assembles an ad-hoc signed `build/GifCrop.app` with gifsicle, the `gifcrop` CLI, and the icon inside it.
 
-To install:
+Other tasks (`mise tasks` lists them all):
 
-```sh
-cp -R build/GifCrop.app /Applications/
-```
+- `mise run install` — builds and copies the app to `/Applications`, replacing any existing copy
+- `mise run package` — builds and zips the app into `build/GifCrop.zip` with `ditto`, which keeps the code signature intact
+- `mise run release` — publishes a GitHub release for the version in `Support/Info.plist`
 
-To package a release, zip the app with `ditto` (it preserves the code signature and bundle metadata, which Finder's Compress and plain `zip` can break) and attach `build/GifCrop.zip` to a GitHub release:
+### Releasing
 
-```sh
-ditto -c -k --keepParent build/GifCrop.app build/GifCrop.zip
-```
+1. Bump `CFBundleShortVersionString` (following SemVer) and `CFBundleVersion` in `Support/Info.plist`
+2. Add a `## [x.y.z]` section to `CHANGELOG.md`
+3. Commit on `main`, then run `mise run release`
+
+The release task refuses to run with uncommitted changes, off `main`, or if the tag already exists. It builds and packages the app, tags `vx.y.z`, pushes `main` and the tag, and creates the GitHub release with the changelog section, install instructions, and the zip's SHA-256.
 
 ## Layout
 
 - `Sources/GifCrop/` — the app (AppKit, `NSDocument`-based)
-- `Support/Info.plist` — app bundle metadata, registers GIF as an openable type
+- `Sources/GifCropCLI/` — the `gifcrop` command-line tool
+- `Support/Info.plist` — app bundle metadata and version, registers GIF as an openable type
 - `Support/AppIcon.png` — 1024px icon, converted to `.icns` during the build
-- `scripts/build-gifsicle.sh` — downloads and builds gifsicle
-- `scripts/build-app.sh` — builds `build/GifCrop.app`
+- `mise.toml` — tool versions
+- `mise-tasks/` — the build, package, install, and release tasks

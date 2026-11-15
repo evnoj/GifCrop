@@ -1,0 +1,8 @@
+#!/bin/zsh
+#MISE description="Build GifCrop and copy it to /Applications, replacing any existing copy"
+#MISE depends=["build"]
+set -euo pipefail
+
+rm -rf /Applications/GifCrop.app
+cp -R "$MISE_PROJECT_ROOT/build/GifCrop.app" /Applications/
+echo /Applications/GifCrop.app

@@ -1,0 +1,11 @@
+#!/bin/zsh
+#MISE description="Zip build/GifCrop.app into build/GifCrop.zip for a release"
+#MISE depends=["build"]
+set -euo pipefail
+
+cd "$MISE_PROJECT_ROOT"
+
+# ditto keeps the code signature and bundle metadata intact; Finder's Compress and plain zip can break them.
+rm -f build/GifCrop.zip
+ditto -c -k --keepParent build/GifCrop.app build/GifCrop.zip
+shasum -a 256 build/GifCrop.zip
