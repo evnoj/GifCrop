@@ -3,20 +3,28 @@ import GifCropShared
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let customRatiosMenu = NSMenu(title: "Custom")
+    private var openPanelIsShowing = false
+    private var documentsBeingOpened = 0
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = makeMainMenu()
-        FileHandle.standardError.write("DEBUG launching responds=\(responds(to: Selector(("application:openURLs:"))))\n".data(using: .utf8)!)
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    // Closing the launch Open panel counts as closing the last window, so don't quit while a file is on its way.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        !openPanelIsShowing && documentsBeingOpened == 0
+    }
 
     // Like Preview: launching without a file shows the Open panel instead of an empty window.
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool { true }
 
+    // Also called on reactivation (e.g. a Dock click), which would stack a second panel on the first.
     func applicationOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        guard !openPanelIsShowing else { return true }
+        openPanelIsShowing = true
         NSDocumentController.shared.beginOpenPanel { [weak self] urls in
             self?.open(urls ?? [])
+            self?.openPanelIsShowing = false
         }
         return true
     }
@@ -27,13 +35,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // Quits if nothing ends up open (e.g. the Open panel was cancelled), since there's no window to close.
     private func open(_ urls: [URL]) {
-        FileHandle.standardError.write("DEBUG open \(urls)\n".data(using: .utf8)!)
         let controller = NSDocumentController.shared
         let quitIfEmpty = { if controller.documents.isEmpty { NSApp.terminate(nil) } }
         guard !urls.isEmpty else { return quitIfEmpty() }
         for url in urls {
+            documentsBeingOpened += 1
             controller.openDocument(withContentsOf: url, display: true) { _, _, error in
-                FileHandle.standardError.write("DEBUG done \(String(describing: error))\n".data(using: .utf8)!)
+                self.documentsBeingOpened -= 1
                 guard let error else { return }
                 DocumentClosedNotification.post(for: url, error: error.localizedDescription)
                 NSApp.presentError(error)
